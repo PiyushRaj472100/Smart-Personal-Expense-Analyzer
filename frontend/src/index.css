@@ -1,0 +1,79 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-paper text-ink antialiased;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply inline-flex items-center justify-center bg-primary-500 text-ink px-5 py-2.5 rounded-brutal font-semibold 
+      uppercase tracking-wide border-2 border-ink shadow-brutal
+      hover:-translate-y-0.5 hover:shadow-[6px_6px_0_0_#111827]
+      active:translate-y-0 active:shadow-brutal
+      transition-transform transition-shadow duration-150
+      disabled:opacity-60 disabled:cursor-not-allowed;
+  }
+  
+  .btn-secondary {
+    @apply inline-flex items-center justify-center bg-white text-ink px-4 py-2 rounded-brutal font-semibold 
+      border-2 border-ink shadow-brutal-sm
+      hover:-translate-y-0.5 hover:shadow-brutal
+      active:translate-y-0 active:shadow-brutal-sm
+      transition-transform transition-shadow duration-150;
+  }
+  
+  .input-field {
+    @apply w-full px-4 py-2 border-2 border-ink rounded-xl bg-white
+      focus:ring-4 focus:ring-primary-200 focus:border-primary-600 outline-none
+      placeholder:text-gray-400 text-ink transition-all duration-150;
+  }
+  
+  .card {
+    @apply bg-white rounded-brutal border-2 border-ink shadow-brutal p-6;
+  }
+
+  .glass-card {
+    @apply bg-white/80 backdrop-blur rounded-brutal border-2 border-ink/80 shadow-brutal p-6;
+  }
+
+  .section-title {
+    @apply flex items-center justify-between gap-3 mb-3;
+  }
+
+  .pill-soft {
+    @apply inline-flex items-center px-3 py-1 rounded-full bg-primary-100 text-ink text-xs font-semibold border border-ink/20;
+  }
+
+  .badge-outline {
+    @apply inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border-2 border-ink bg-white shadow-brutal-sm;
+  }
+
+  .stat-grid {
+    @apply grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4;
+  }
+
+  .section-grid {
+    @apply grid grid-cols-1 lg:grid-cols-2 gap-6;
+  }
+
+  .muted {
+    @apply text-sm text-ink/70;
+  }
+
+  .divider {
+    @apply h-px w-full bg-ink/10 my-4;
+  }
+
+  .pill {
+    @apply inline-flex items-center px-3 py-1 rounded-full border-2 border-ink bg-accent-yellow text-ink text-xs font-semibold shadow-brutal-sm;
+  }
+
+  .page-shell {
+    @apply max-w-6xl mx-auto px-4 sm:px-6 lg:px-8;
+  }
+}
+

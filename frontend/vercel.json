@@ -1,0 +1,27 @@
+{
+  "version": 2,
+  "name": "smart-expense-analyzer-frontend",
+  "builds": [
+    {
+      "src": "package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "dist"
+      }
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ],
+  "env": {
+    "VITE_API_URL": "@api_url"
+  },
+  "build": {
+    "env": {
+      "VITE_API_URL": "@api_url"
+    }
+  }
+}

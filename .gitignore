@@ -1,0 +1,81 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+python/venv/
+python/.venv/
+
+# Node
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment / secrets - NEVER COMMIT THESE
+.env
+.env.*
+!.env.example
+python/backend/.env
+python/backend/.env.*
+!python/backend/.env.example
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+
+# API Keys and certificates
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.pem.key
+id_rsa*
+*.asc
+
+# Common secret files
+secrets.json
+credentials.json
+service-account*.json
+config.json
+firebase-credentials.json
+google-credentials.json
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+database.db
+
+# Coverage reports
+coverage/
+*.lcov
+.nyc_output
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Temporary folders
+tmp/
+temp/

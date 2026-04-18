@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+pymongo
+python-dotenv
+pyjwt
+pydantic
+email-validator
+numpy
+scikit-learn
+pandas
