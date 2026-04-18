@@ -17,11 +17,11 @@
     }
   ],
   "env": {
-    "VITE_API_URL": "@api_url"
+    "VITE_API_URL": "https://smartpersonalexpenseanalyzerspea.onrender.com"
   },
   "build": {
     "env": {
-      "VITE_API_URL": "@api_url"
+      "VITE_API_URL": "https://smartpersonalexpenseanalyzerspea.onrender.com"
     }
   }
 }
