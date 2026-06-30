@@ -88,7 +88,8 @@ This project was built with the same engineering discipline expected in producti
 <br />
 
 <div align="center">
-<img src="images/dashboard.png" alt="Dashboard Preview" width="85%" />
+<img width="1915" height="872" alt="image" src="https://github.com/user-attachments/assets/0b1c2b4f-a67b-455e-921b-8aa31848db89" />
+
 </div>
 
 <br />
@@ -299,9 +300,7 @@ flowchart TB
 
 <br />
 
-<div align="center">
-<img src="images/darkmode.png" alt="Dark Mode UI" width="85%" />
-</div>
+
 
 ---
 
@@ -527,7 +526,8 @@ smart-personal-expense-analyzer/
 
 ### 🔐 Login
 
-<img src="images/login.png" alt="Login Screen" width="80%" />
+<img width="768" height="748" alt="image" src="https://github.com/user-attachments/assets/916239d0-ede8-48ba-9dd7-3a0682dde506" />
+
 
 <br /><br />
 
@@ -558,6 +558,16 @@ smart-personal-expense-analyzer/
 
 
 <br /><br />
+
+
+🎥 Demo
+
+<div align="center">
+<img src="demo.gif" alt="Application Demo" width="85%" />
+</div>
+A full walkthrough of authentication, expense entry, AI categorization, anomaly detection, and analytics — captured end to end.
+
+
 
 
 </div>
