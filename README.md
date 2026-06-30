@@ -1,6 +1,7 @@
 <div align="center">
 
-<img src="images/banner.png" alt="Smart Personal Expense Analyzer Banner" width="100%" />
+<img width="1327" height="417" alt="image" src="https://github.com/user-attachments/assets/e8e393e0-7503-4847-8411-5e6e7a873f70" />
+
 
 <br />
 
@@ -181,11 +182,8 @@ To make evaluation effortless, a fully seeded demo account is available with rea
 
 <br />
 
-<div align="center">
-<img src="images/analytics.png" alt="Analytics View" width="85%" />
-</div>
 
----
+
 
 ## 🤖 AI Features
 
