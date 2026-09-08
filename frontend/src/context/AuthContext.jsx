@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState } from 'react';
 import { authAPI } from '../services/api';
 
 const AuthContext = createContext();
@@ -11,23 +11,20 @@ export const useAuth = () => {
   return context;
 };
 
-export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
+function readStoredUser() {
+  try {
     const storedUser = localStorage.getItem('user');
     const token = localStorage.getItem('token');
-    if (storedUser && token) {
-      try {
-        setUser(JSON.parse(storedUser));
-      } catch (e) {
-        localStorage.removeItem('user');
-        localStorage.removeItem('token');
-      }
-    }
-    setLoading(false);
-  }, []);
+    if (storedUser && token) return JSON.parse(storedUser);
+  } catch (e) {
+    localStorage.removeItem('user');
+    localStorage.removeItem('token');
+  }
+  return null;
+}
+
+export const AuthProvider = ({ children }) => {
+  const [user, setUser] = useState(readStoredUser);
 
   const login = async (email, password) => {
     try {
@@ -47,7 +44,13 @@ export const AuthProvider = ({ children }) => {
 
   const signup = async (name, email, password, annualIncome) => {
     try {
-      await authAPI.signup({ name, email, password, annual_income: annualIncome });
+      const response = await authAPI.signup({ name, email, password, annual_income: annualIncome });
+      if (response.data?.token && response.data?.user) {
+        const { token, user: userData } = response.data;
+        localStorage.setItem('token', token);
+        localStorage.setItem('user', JSON.stringify(userData));
+        setUser(userData);
+      }
       return { success: true };
     } catch (error) {
       return {
@@ -64,7 +67,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, signup, logout, loading }}>
+    <AuthContext.Provider value={{ user, login, signup, logout, loading: false }}>
       {children}
     </AuthContext.Provider>
   );

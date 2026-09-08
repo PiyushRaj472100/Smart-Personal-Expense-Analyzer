@@ -54,35 +54,42 @@ def create_token(user_id: str):
 
 @auth_router.post("/signup")
 def signup(data: SignupRequest):
-    try:
-        if users_col.find_one({"email": data.email}):
-            raise HTTPException(status_code=400, detail="User already exists")
+    email = data.email.strip().lower()
+    if users_col.find_one({"email": email}):
+        raise HTTPException(status_code=400, detail="User already exists")
 
-        user = {
-            "name": data.name,
-            "email": data.email,
-            "password": hash_password(data.password),
-            "annual_income": data.annual_income,
-            "created_at": datetime.utcnow()
+    user = {
+        "name": data.name.strip(),
+        "email": email,
+        "password": hash_password(data.password),
+        "annual_income": data.annual_income,
+        "created_at": datetime.utcnow()
+    }
+
+    result = users_col.insert_one(user)
+    user_id_str = str(result.inserted_id)
+
+    profiles_col.insert_one({
+        "user_id": user_id_str,
+        "annual_income": data.annual_income,
+        "updated_at": datetime.utcnow()
+    })
+
+    token = create_token(user_id_str)
+    return {
+        "message": "User registered successfully",
+        "token": token,
+        "user": {
+            "name": user["name"],
+            "email": user["email"],
+            "annual_income": user["annual_income"]
         }
-
-        result = users_col.insert_one(user)
-
-        profiles_col.insert_one({
-            "user_id": str(result.inserted_id),
-            "annual_income": data.annual_income,
-            "updated_at": datetime.utcnow()
-        })
-
-        return {"message": "User registered successfully"}
-
-    except Exception as e:
-        print("SIGNUP ERROR:", e)
-        raise HTTPException(status_code=500, detail=str(e))
+    }
 
 @auth_router.post("/login")
 def login(data: LoginRequest):
-    user = users_col.find_one({"email": data.email})
+    email = data.email.strip().lower()
+    user = users_col.find_one({"email": email})
 
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -97,6 +104,6 @@ def login(data: LoginRequest):
         "user": {
             "name": user["name"],
             "email": user["email"],
-            "annual_income": user["annual_income"]
+            "annual_income": user.get("annual_income", 0)
         }
     }

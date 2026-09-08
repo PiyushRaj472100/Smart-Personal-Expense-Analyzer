@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { transactionsAPI } from '../services/api';
-import { Plus, Trash2, MessageSquare, X, Check, AlertCircle, Lightbulb, RefreshCw } from 'lucide-react';
+import { Plus, Trash2, MessageSquare, X, Check, AlertCircle, Lightbulb, RefreshCw, Upload } from 'lucide-react';
 import { format } from 'date-fns';
 
 const Transactions = () => {
@@ -8,6 +8,9 @@ const Transactions = () => {
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showSMSModal, setShowSMSModal] = useState(false);
+  const [showCSVModal, setShowCSVModal] = useState(false);
+  const [csvFile, setCsvFile] = useState(null);
+  const [uploadingCSV, setUploadingCSV] = useState(false);
   const [formData, setFormData] = useState({
     title: '',
     amount: '',
@@ -95,8 +98,10 @@ const Transactions = () => {
 
       if (response.data.alert) {
         setSuccess(`Transaction added from SMS! ${response.data.alert}`);
+      } else if (response.data.needs_review) {
+        setSuccess(`Transaction recorded (₹${response.data.amount} for "${response.data.title}"): ${response.data.reason || 'Auto-categorized; feel free to edit.'}`);
       } else {
-        setSuccess('Transaction added from SMS successfully!');
+        setSuccess(`Transaction added: ₹${response.data.amount} for "${response.data.title}" under ${response.data.category}.`);
       }
 
       setSmsText('');
@@ -104,6 +109,30 @@ const Transactions = () => {
       fetchTransactions();
     } catch (err) {
       setError(err.response?.data?.detail || 'Failed to parse SMS');
+    }
+  };
+
+  const handleCSVUpload = async (e) => {
+    e.preventDefault();
+    if (!csvFile) {
+      setError('Please select a CSV file first.');
+      return;
+    }
+    setError('');
+    setSuccess('');
+    setUploadingCSV(true);
+    try {
+      const uploadData = new FormData();
+      uploadData.append('file', csvFile);
+      const response = await transactionsAPI.uploadCSV(uploadData);
+      setSuccess(response.data.message || `Successfully imported ${response.data.count} transactions!`);
+      setCsvFile(null);
+      setShowCSVModal(false);
+      fetchTransactions();
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to import CSV statement.');
+    } finally {
+      setUploadingCSV(false);
     }
   };
 
@@ -292,6 +321,14 @@ const Transactions = () => {
           <div className="w-full md:w-auto flex flex-col sm:flex-row flex-wrap gap-3">
 
             <button
+              onClick={() => setShowCSVModal(true)}
+              className="w-full sm:w-auto btn-secondary inline-flex items-center justify-center"
+            >
+              <Upload className="mr-2 w-4 h-4" />
+              Import CSV
+            </button>
+
+            <button
               onClick={() => setShowSMSModal(true)}
               className="w-full sm:w-auto btn-secondary inline-flex items-center justify-center"
             >
@@ -382,6 +419,11 @@ const Transactions = () => {
                       <span className="badge-outline bg-accent-teal/20 border-ink">
                         {category}
                       </span>
+                      {transaction.needs_review && (
+                        <span className="ml-2 px-1.5 py-0.5 text-[10px] font-semibold bg-amber-100 text-amber-800 rounded" title="Auto-estimated from SMS without merchant">
+                          Auto-estimated
+                        </span>
+                      )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-ink/80">
                       {source}
@@ -587,7 +629,7 @@ const Transactions = () => {
                   placeholder="Paste your banking SMS here..."
                 />
                 <p className="mt-1 text-xs text-gray-500">
-                  Example: "INR 500.00 debited at GROCERY STORE on 01-01-2024"
+                  Supports SBI, HDFC, ICICI, UPI & cards. Even works with vague UPI SMS without merchant name.
                 </p>
               </div>
 
@@ -602,6 +644,72 @@ const Transactions = () => {
                 <button type="submit" className="btn-primary flex-1 inline-flex items-center justify-center">
                   <MessageSquare className="mr-2 w-4 h-4" />
                   Parse & Add
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* CSV Statement Upload Modal */}
+      {showCSVModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center">
+                <Upload className="w-5 h-5 text-indigo-600 mr-2" />
+                <h2 className="text-xl font-bold text-gray-900">Import Statement / CSV</h2>
+              </div>
+              <button
+                onClick={() => { setShowCSVModal(false); setCsvFile(null); }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCSVUpload} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Choose CSV File
+                </label>
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={(e) => setCsvFile(e.target.files[0])}
+                  className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer border border-gray-300 rounded-lg p-1.5"
+                  required
+                />
+                <p className="mt-2 text-xs text-gray-500 leading-relaxed">
+                  Supports exported CSV statements from SBI, HDFC, ICICI, Axis, Paytm, or standard spreadsheets. Credits (salary/deposits) are automatically excluded.
+                </p>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => { setShowCSVModal(false); setCsvFile(null); }}
+                  className="btn-secondary flex-1"
+                  disabled={uploadingCSV}
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  className="btn-primary flex-1 inline-flex items-center justify-center"
+                  disabled={uploadingCSV}
+                >
+                  {uploadingCSV ? (
+                    <>
+                      <RefreshCw className="mr-2 w-4 h-4 animate-spin" />
+                      Importing...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="mr-2 w-4 h-4" />
+                      Upload & Import
+                    </>
+                  )}
                 </button>
               </div>
             </form>

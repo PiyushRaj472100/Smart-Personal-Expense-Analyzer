@@ -1,16 +1,19 @@
-from fastapi import APIRouter, HTTPException, Depends, Header
+from fastapi import APIRouter, HTTPException, Depends, Header, File, UploadFile
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
 import jwt
 import re
 import os
+import csv
+import io
 from bson import ObjectId
 from dotenv import load_dotenv
 
 from backend.database import transactions_col, users_col, alerts_col, category_usage_col
 from ai.categorizer import categorize_expense_adaptive, learn_from_correction
 from ai.anomaly import detect_anomaly
+from ai.sms_parser import parse_sms
 
 # ---------------- CONFIG ---------------- #
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -76,33 +79,6 @@ class CategoryFeedback(BaseModel):
 
 class CategorySuggestion(BaseModel):
     title: str
-
-# ---------------- HELPERS ---------------- #
-def parse_sms(message: str):
-    """Parse banking SMS to extract transaction details"""
-    amount = None
-    merchant = None
-    date = None
-    
-    # Amount extraction
-    amt_match = re.search(r"(INR|Rs\.?|₹)\s*([\d,]+\.?\d*)", message, re.IGNORECASE)
-    if amt_match:
-        amount = float(amt_match.group(2).replace(",", ""))
-    
-    # Merchant extraction
-    merchant_match = re.search(r"(?:at|to)\s+([A-Za-z0-9\s&]+?)(?:\s+on|\s+for|$)", message, re.IGNORECASE)
-    if merchant_match:
-        merchant = merchant_match.group(1).strip()
-    
-    # Date extraction
-    date_match = re.search(r"(\d{2}[-/]\d{2}[-/]\d{4})", message)
-    if date_match:
-        try:
-            date = datetime.strptime(date_match.group(1), "%d-%m-%Y").strftime("%Y-%m-%d")
-        except:
-            date = datetime.utcnow().strftime("%Y-%m-%d")
-    
-    return amount, merchant, date
 
 # ---------------- ROUTES ---------------- #
 
@@ -194,24 +170,35 @@ def add_transaction(data: TransactionCreate, user=Depends(get_current_user)):
 @transactions_router.post("/from-sms")
 def add_transaction_from_sms(data: SMSInput, user=Depends(get_current_user)):
     """Parse and add transaction from banking SMS"""
-    amount, merchant, date = parse_sms(data.message)
+    parsed = parse_sms(data.message)
     
+    if parsed.get("is_credit"):
+        raise HTTPException(status_code=400, detail="This is an income/credit notification, not an expense debit.")
+    
+    amount = parsed.get("amount")
     if not amount:
-        raise HTTPException(status_code=400, detail="Could not extract amount from SMS")
+        raise HTTPException(status_code=400, detail="Could not extract amount from SMS. Please check format.")
     
-    title = merchant or "Unknown Merchant"
+    title = parsed.get("title") or "Expense"
     
-    # Categorize automatically
-    cat_result = categorize_expense_adaptive(title)
-    category = cat_result.get("category", "Other")
+    # Categorization logic
+    if parsed.get("category"):
+        category = parsed["category"]
+    else:
+        cat_result = categorize_expense_adaptive(title)
+        category = cat_result.get("category", "Other")
+    
+    date = parsed.get("date") or datetime.utcnow().strftime("%Y-%m-%d")
+    needs_review = parsed.get("needs_review", False)
     
     transaction = {
         "user_id": str(user["_id"]),
         "title": title,
         "amount": amount,
         "category": category,
-        "date": date or datetime.utcnow().strftime("%Y-%m-%d"),
+        "date": date,
         "source": "sms",
+        "needs_review": needs_review,
         "created_at": datetime.utcnow()
     }
     
@@ -240,8 +227,241 @@ def add_transaction_from_sms(data: SMSInput, user=Depends(get_current_user)):
         "title": title,
         "amount": amount,
         "category": category,
-        "date": date or datetime.utcnow().strftime("%Y-%m-%d"),
+        "date": date,
+        "needs_review": needs_review,
+        "reason": parsed.get("reason"),
         "alert": anomaly_msg
+    }
+
+def _parse_csv_statement(content_str: str):
+    lines = content_str.strip().splitlines()
+    if not lines:
+        return []
+
+    # 1. Detect header row by looking for date + (amount/debit/description/type/particulars)
+    header_idx = 0
+    for idx, line in enumerate(lines[:25]): # Search first 25 rows for actual table header
+        lower_l = line.lower()
+        if 'date' in lower_l and any(k in lower_l for k in ['amount', 'debit', 'desc', 'particular', 'type', 'detail', 'paid to']):
+            header_idx = idx
+            break
+
+    reader = csv.DictReader(io.StringIO('\n'.join(lines[header_idx:])))
+    if not reader.fieldnames:
+        return []
+
+    raw_headers = {h.strip().lower(): h for h in reader.fieldnames if h}
+
+    def find_key(candidates):
+        for c in candidates:
+            # Exact match first
+            for h, orig in raw_headers.items():
+                if h == c:
+                    return orig
+            # Substring match (e.g. 'amount (inr)' matches 'amount')
+            for h, orig in raw_headers.items():
+                if c in h:
+                    return orig
+        return None
+
+    date_key = find_key(['date', 'txn date', 'transaction date', 'time'])
+    title_key = find_key(['paid to', 'payee', 'merchant', 'beneficiary', 'receiver', 'to', 'party name', 'name', 'description', 'particular', 'narration', 'detail', 'remarks', 'title'])
+    category_key = find_key(['category', 'tag'])
+    debit_key = find_key(['debit amount', 'debit', 'withdrawal', 'expense', 'spent'])
+    credit_key = find_key(['credit amount', 'credit', 'deposit', 'income', 'received'])
+    amount_key = find_key(['amount', 'txn amount', 'transaction amount', 'paid amount'])
+    type_key = find_key(['type', 'payment type', 'txn type', 'dr/cr', 'cr/dr', 'transaction type'])
+    status_key = find_key(['status', 'payment status', 'txn status'])
+
+    items = []
+    for row in reader:
+        # Check status (skip failed/declined/reversed transactions from PhonePe/GPay)
+        if status_key and row.get(status_key):
+            st = str(row[status_key]).strip().upper()
+            if any(bad in st for bad in ['FAIL', 'DECLINE', 'REVERS', 'CANCEL', 'BOUNCE']):
+                continue
+
+        # Check credit/deposit (skip income/salary/money received)
+        if credit_key and row.get(credit_key):
+            try:
+                c_clean = re.sub(r'[^\d.]', '', str(row[credit_key]))
+                if c_clean and float(c_clean) > 0 and (not debit_key or not row.get(debit_key)):
+                    continue
+            except ValueError:
+                pass
+
+        if type_key and row.get(type_key):
+            tp = str(row[type_key]).strip().upper()
+            if any(c in tp for c in ['CR', 'CREDIT', 'DEPOSIT', 'REFUND', 'RECEIVED']):
+                continue
+
+        # Extract debit amount
+        amt = None
+        amt_raw = None
+        if debit_key and row.get(debit_key):
+            amt_raw = row[debit_key]
+        elif amount_key and row.get(amount_key):
+            amt_raw = row[amount_key]
+
+        if amt_raw:
+            clean_num = re.sub(r'[^\d.]', '', str(amt_raw))
+            if clean_num:
+                try:
+                    amt = float(clean_num)
+                except ValueError:
+                    pass
+
+        if not amt or amt <= 0:
+            continue
+
+        # Title extraction: Clean PhonePe/UPI prefix and extract person or merchant name
+        raw_title = (row.get(title_key) or 'Expense').strip() if title_key else 'Expense'
+        clean_title = re.sub(r'^(money sent to|sent to|transferred to|transfer to|paid to|payment to|spent at|payment for|payment towards|debited for|to)\s+', '', raw_title, flags=re.I).strip()
+        clean_title = re.sub(r'\s+(via upi|using phonepe|on phonepe|upi)$', '', clean_title, flags=re.I).strip()
+        clean_title = re.sub(r'[/_-]+\s*upi.*$', '', clean_title, flags=re.I).strip()
+        final_title = clean_title.title() if clean_title else raw_title
+        if len(final_title) > 80:
+            final_title = final_title[:80]
+
+        # Date normalization (handle 'DD-MM-YYYY HH:MM:SS' timestamps)
+        raw_date = (row.get(date_key) or '').strip() if date_key else ''
+        raw_date = raw_date.split()[0] if ' ' in raw_date else raw_date
+        date_str = None
+        if raw_date:
+            for fmt in ('%Y-%m-%d', '%d-%m-%Y', '%d/%m/%Y', '%d-%m-%y', '%d/%m/%y', '%d-%b-%Y', '%d %b %Y', '%Y/%m/%d', '%b %d, %Y', '%d %b, %Y'):
+                try:
+                    date_str = datetime.strptime(raw_date, fmt).strftime('%Y-%m-%d')
+                    break
+                except ValueError:
+                    pass
+        if not date_str:
+            date_str = datetime.utcnow().strftime('%Y-%m-%d')
+
+        cat = str(row[category_key]).strip() if category_key and row.get(category_key) else None
+        items.append({'title': final_title, 'raw_title': raw_title, 'amount': amt, 'date': date_str, 'category': cat})
+
+    return items
+
+def _determine_category(clean_title: str, raw_title: str, amount: float) -> str:
+    """Intelligently assign category based on merchant, person name, keywords, or micro-amount without asking."""
+    # 1. First check existing adaptive learning engine
+    cat_res = categorize_expense_adaptive(clean_title)
+    cat = cat_res.get("category")
+    if cat and cat != "Other":
+        return cat
+
+    combined = f"{clean_title} {raw_title}".lower()
+
+    # 2. Comprehensive keyword matcher
+    if any(k in combined for k in [
+        'chai', 'tea', 'stall', 'canteen', 'cafe', 'dhaba', 'bhojanalaya', 
+        'sweets', 'bakery', 'dairy', 'juice', 'shawarma', 'hotel', 'kitchen', 
+        'biryani', 'pan shop', 'paan', 'tiffin', 'mess', 'paratha', 'fast food', 
+        'street food', 'snack', 'restaurant', 'burger', 'pizza', 'zomato', 
+        'swiggy', 'chaayos', 'haldiram', 'mcdonald', 'kfc', 'domino', 'food'
+    ]):
+        return 'Food'
+
+    if any(k in combined for k in [
+        'supermarket', 'mart', 'kirana', 'provision', 'store', 'bazaar', 
+        'zepto', 'blinkit', 'instamart', 'bigbasket', 'vegetable', 'sabji', 
+        'mandi', 'milk', 'fruits', 'grocery', 'ration'
+    ]):
+        return 'Grocery'
+
+    if any(k in combined for k in [
+        'rapido', 'uber', 'ola', 'auto', 'rickshaw', 'metro', 'fuel', 
+        'petrol', 'diesel', 'hpcl', 'bpcl', 'ioc', 'indian oil', 'toll', 
+        'fastag', 'bus', 'train', 'flight', 'taxi', 'irctc', 'redbus', 'transport'
+    ]):
+        return 'Transport'
+
+    if any(k in combined for k in [
+        'recharge', 'airtel', 'jio', 'vi', 'vodafone', 'bsnl', 'bescom', 
+        'tneb', 'mseb', 'electricity', 'broadband', 'wifi', 'cylinder', 
+        'indane', 'hp gas', 'bharat gas', 'bill', 'rent', 'emi', 'insurance', 'loan'
+    ]):
+        return 'Bills'
+
+    if any(k in combined for k in [
+        'pharmacy', 'medical', 'chemist', 'apollo', 'medplus', '1mg', 
+        'netmeds', 'dr.', 'doctor', 'clinic', 'hospital', 'pathology', 
+        'lab', 'medicine', 'health', 'gym', 'fitness'
+    ]):
+        return 'Health'
+
+    if any(k in combined for k in [
+        'amazon', 'flipkart', 'myntra', 'meesho', 'ajio', 'nykaa', 'dmart', 
+        'trends', 'zudio', 'mall', 'clothes', 'fashion', 'shoes', 'electronics', 'shopping'
+    ]):
+        return 'Shopping'
+
+    if any(k in combined for k in [
+        'netflix', 'spotify', 'prime', 'hotstar', 'youtube', 'movie', 
+        'cinema', 'gaming', 'bookmyshow', 'pvr', 'inox', 'entertainment'
+    ]):
+        return 'Entertainment'
+
+    # 3. Micro-transaction rule: <= 50 Rs to ANY person or vendor QR is Chai/Snacks/Local transit
+    if amount and amount <= 50:
+        return 'Food'
+
+    # 4. Peer-to-Peer payment to an individual person
+    if re.search(r'\b(paid to|sent to|transfer to|transferred to|payment to)\b', raw_title, re.I):
+        return 'Transfer'
+
+    return 'Other'
+
+@transactions_router.post("/upload-csv")
+async def upload_csv_statement(file: UploadFile = File(...), user=Depends(get_current_user)):
+    """Upload and bulk import transactions from bank or expense CSV statement"""
+    if not file.filename.lower().endswith((".csv", ".txt")):
+        raise HTTPException(status_code=400, detail="Only CSV files (.csv) are supported.")
+
+    contents = await file.read()
+    try:
+        text = contents.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        try:
+            text = contents.decode("latin1")
+        except Exception:
+            raise HTTPException(status_code=400, detail="Could not read CSV file encoding.")
+
+    parsed_items = _parse_csv_statement(text)
+    if not parsed_items:
+        raise HTTPException(
+            status_code=400, 
+            detail="No valid debit expenses found in CSV. Please ensure the file has Date, Title/Narration, and Debit/Amount columns."
+        )
+
+    transactions_to_insert = []
+    total_amount = 0.0
+    now = datetime.utcnow()
+    user_id_str = str(user["_id"])
+
+    for item in parsed_items:
+        category = item.get("category")
+        if not category or category.lower() in ("other", "none", ""):
+            category = _determine_category(item["title"], item.get("raw_title", ""), item["amount"])
+
+        transactions_to_insert.append({
+            "user_id": user_id_str,
+            "title": item["title"],
+            "amount": item["amount"],
+            "category": category,
+            "date": item["date"],
+            "source": "csv_upload",
+            "created_at": now
+        })
+        total_amount += item["amount"]
+
+    if transactions_to_insert:
+        transactions_col.insert_many(transactions_to_insert)
+
+    return {
+        "message": f"Successfully imported {len(transactions_to_insert)} transactions!",
+        "count": len(transactions_to_insert),
+        "total_amount": round(total_amount, 2)
     }
 
 @transactions_router.delete("/{transaction_id}")

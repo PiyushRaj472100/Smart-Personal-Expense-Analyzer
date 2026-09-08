@@ -57,6 +57,9 @@ export const transactionsAPI = {
   getCategories: () => api.get('/api/transactions/categories'),
   suggestCategory: (data) => api.post('/api/transactions/suggest-category', data),
   provideFeedback: (data) => api.post('/api/transactions/feedback', data),
+  uploadCSV: (formData) => api.post('/api/transactions/upload-csv', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }),
 };
 
 // Analytics API

@@ -13,7 +13,21 @@ DB_NAME = "smart_expense_analyzer"
 if not MONGO_URI:
     raise RuntimeError("MONGO_URI not found in .env")
 
-client = MongoClient(MONGO_URI)
+client_kwargs = {
+    "maxPoolSize": 50,
+    "minPoolSize": 5,
+    "connectTimeoutMS": 8000,
+    "socketTimeoutMS": 10000,
+    "retryWrites": True,
+}
+
+try:
+    import certifi
+    client_kwargs["tlsCAFile"] = certifi.where()
+except ImportError:
+    pass
+
+client = MongoClient(MONGO_URI, **client_kwargs)
 db = client[DB_NAME]
 
 # Collections
@@ -22,3 +36,10 @@ profiles_col = db["profiles"]
 transactions_col = db["transactions"]
 alerts_col = db["alerts"]
 category_usage_col = db["category_usage"]
+
+# Create background indexes for fast auth lookups
+try:
+    users_col.create_index("email", unique=True, background=True)
+    transactions_col.create_index([("user_id", 1), ("date", -1)], background=True)
+except Exception:
+    pass

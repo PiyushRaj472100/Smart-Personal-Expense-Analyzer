@@ -35,7 +35,7 @@ const Signup = () => {
     setLoading(false);
 
     if (result.success) {
-      navigate('/login');
+      navigate('/dashboard');
     } else {
       setError(result.error);
     }
