@@ -13,12 +13,20 @@ export const useAuth = () => {
 
 function readStoredUser() {
   try {
-    const storedUser = localStorage.getItem('user');
-    const token = localStorage.getItem('token');
+    let storedUser = localStorage.getItem('user');
+    let token = localStorage.getItem('token');
+    
+    if (!storedUser || !token) {
+      storedUser = sessionStorage.getItem('user');
+      token = sessionStorage.getItem('token');
+    }
+    
     if (storedUser && token) return JSON.parse(storedUser);
   } catch (e) {
     localStorage.removeItem('user');
     localStorage.removeItem('token');
+    sessionStorage.removeItem('user');
+    sessionStorage.removeItem('token');
   }
   return null;
 }
@@ -26,12 +34,15 @@ function readStoredUser() {
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(readStoredUser);
 
-  const login = async (email, password) => {
+  const login = async (email, password, rememberMe = false) => {
     try {
       const response = await authAPI.login({ email, password });
       const { token, user: userData } = response.data;
-      localStorage.setItem('token', token);
-      localStorage.setItem('user', JSON.stringify(userData));
+      
+      const storage = rememberMe ? localStorage : sessionStorage;
+      storage.setItem('token', token);
+      storage.setItem('user', JSON.stringify(userData));
+      
       setUser(userData);
       return { success: true };
     } catch (error) {
@@ -47,6 +58,7 @@ export const AuthProvider = ({ children }) => {
       const response = await authAPI.signup({ name, email, password, annual_income: annualIncome });
       if (response.data?.token && response.data?.user) {
         const { token, user: userData } = response.data;
+        // Signup defaults to remember me
         localStorage.setItem('token', token);
         localStorage.setItem('user', JSON.stringify(userData));
         setUser(userData);
@@ -63,6 +75,8 @@ export const AuthProvider = ({ children }) => {
   const logout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    sessionStorage.removeItem('token');
+    sessionStorage.removeItem('user');
     setUser(null);
   };
 

@@ -4,6 +4,7 @@ from bson import ObjectId
 import jwt
 import os
 from dotenv import load_dotenv
+from functools import lru_cache
 
 from backend.database import users_col, transactions_col, alerts_col
 from ai.tips_engine import generate_tips
@@ -28,6 +29,10 @@ def normalize_category(value):
         return value.strip()
     return "Other"
 
+@lru_cache(maxsize=128)
+def get_cached_user(user_id_str: str):
+    return users_col.find_one({"_id": ObjectId(user_id_str)})
+
 # ---------------- AUTH ---------------- #
 def get_current_user(authorization: str = Header(...)):
     try:
@@ -36,7 +41,7 @@ def get_current_user(authorization: str = Header(...)):
             raise Exception("Invalid auth scheme")
         
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO])
-        user = users_col.find_one({"_id": ObjectId(payload["user_id"])})
+        user = get_cached_user(payload["user_id"])
         
         if not user:
             raise Exception("User not found")

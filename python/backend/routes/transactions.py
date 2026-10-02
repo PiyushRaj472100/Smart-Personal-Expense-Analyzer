@@ -9,11 +9,11 @@ import csv
 import io
 from bson import ObjectId
 from dotenv import load_dotenv
+from functools import lru_cache
 
 from backend.database import transactions_col, users_col, alerts_col, category_usage_col
 from ai.categorizer import categorize_expense_adaptive, learn_from_correction
 from ai.anomaly import detect_anomaly
-from ai.sms_parser import parse_sms
 
 # ---------------- CONFIG ---------------- #
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -44,6 +44,10 @@ def normalize_source(value):
         return value.strip().lower()
     return "manual"
 
+@lru_cache(maxsize=128)
+def get_cached_user(user_id_str: str):
+    return users_col.find_one({"_id": ObjectId(user_id_str)})
+
 # ---------------- AUTH ---------------- #
 def get_current_user(authorization: str = Header(...)):
     try:
@@ -52,7 +56,7 @@ def get_current_user(authorization: str = Header(...)):
             raise HTTPException(status_code=401, detail="Invalid auth scheme")
         
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO])
-        user = users_col.find_one({"_id": ObjectId(payload["user_id"])})
+        user = get_cached_user(payload["user_id"])
         
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
@@ -69,9 +73,6 @@ class TransactionCreate(BaseModel):
     date: str
     category: Optional[str] = None
     source: str = "manual"  # cash / upi / card / netbanking / manual
-
-class SMSInput(BaseModel):
-    message: str
 
 class CategoryFeedback(BaseModel):
     transaction_id: str
@@ -130,11 +131,15 @@ def add_transaction(data: TransactionCreate, user=Depends(get_current_user)):
     
     result = transactions_col.insert_one(transaction)
     
+    # Fetch historical transactions for anomaly detection
+    historical_txns = list(transactions_col.find({"user_id": str(user["_id"])}).sort("date", -1).limit(100))
+    
     # Check for anomalies
     anomaly_result = detect_anomaly(
         user_income=user.get("annual_income", 0),
         amount=data.amount,
-        category=category
+        category=category,
+        user_historical_transactions=historical_txns
     )
     
     anomaly_msg = anomaly_result.get("message") if anomaly_result else None
@@ -166,72 +171,6 @@ def add_transaction(data: TransactionCreate, user=Depends(get_current_user)):
         })
     
     return response_data
-
-@transactions_router.post("/from-sms")
-def add_transaction_from_sms(data: SMSInput, user=Depends(get_current_user)):
-    """Parse and add transaction from banking SMS"""
-    parsed = parse_sms(data.message)
-    
-    if parsed.get("is_credit"):
-        raise HTTPException(status_code=400, detail="This is an income/credit notification, not an expense debit.")
-    
-    amount = parsed.get("amount")
-    if not amount:
-        raise HTTPException(status_code=400, detail="Could not extract amount from SMS. Please check format.")
-    
-    title = parsed.get("title") or "Expense"
-    
-    # Categorization logic
-    if parsed.get("category"):
-        category = parsed["category"]
-    else:
-        cat_result = categorize_expense_adaptive(title)
-        category = cat_result.get("category", "Other")
-    
-    date = parsed.get("date") or datetime.utcnow().strftime("%Y-%m-%d")
-    needs_review = parsed.get("needs_review", False)
-    
-    transaction = {
-        "user_id": str(user["_id"]),
-        "title": title,
-        "amount": amount,
-        "category": category,
-        "date": date,
-        "source": "sms",
-        "needs_review": needs_review,
-        "created_at": datetime.utcnow()
-    }
-    
-    result = transactions_col.insert_one(transaction)
-    
-    # Check for anomalies
-    anomaly_result = detect_anomaly(
-        user_income=user.get("annual_income", 0),
-        amount=amount,
-        category=category
-    )
-    
-    anomaly_msg = anomaly_result.get("message") if anomaly_result else None
-    
-    if anomaly_msg:
-        alerts_col.insert_one({
-            "user_id": str(user["_id"]),
-            "type": "warning",
-            "message": anomaly_msg,
-            "created_at": datetime.utcnow()
-        })
-    
-    return {
-        "message": "Transaction added from SMS",
-        "transaction_id": str(result.inserted_id),
-        "title": title,
-        "amount": amount,
-        "category": category,
-        "date": date,
-        "needs_review": needs_review,
-        "reason": parsed.get("reason"),
-        "alert": anomaly_msg
-    }
 
 def _parse_csv_statement(content_str: str):
     lines = content_str.strip().splitlines()
