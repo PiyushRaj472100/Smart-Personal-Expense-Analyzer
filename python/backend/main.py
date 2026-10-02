@@ -21,17 +21,14 @@ from backend.routes.analytics import analytics_router
 
 app = FastAPI(title="Smart Expense Analyzer API")
 
-# Comma-separated origins; use * only for local/dev convenience.
-cors_origins_env = os.getenv("CORS_ORIGINS", "*")
-if cors_origins_env.strip() == "*":
-    cors_origins = ["*"]
-else:
-    cors_origins = [origin.strip() for origin in cors_origins_env.split(",") if origin.strip()]
-
 # CORS - Allow frontend to connect
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "https://smartpersonalexpenseanalyzer.vercel.app"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
