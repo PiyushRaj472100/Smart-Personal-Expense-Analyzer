@@ -134,12 +134,21 @@ def add_transaction(data: TransactionCreate, user=Depends(get_current_user)):
     # Fetch historical transactions for anomaly detection
     historical_txns = list(transactions_col.find({"user_id": str(user["_id"])}).sort("date", -1).limit(100))
     
+    # Fetch profile for anomaly detection context
+    from backend.database import profiles_col
+    profile = profiles_col.find_one({"user_id": str(user["_id"])}) or {}
+    family_members = profile.get("family_members", 1)
+    has_pets = profile.get("has_pets", False)
+    annual_income = profile.get("annual_income") or user.get("annual_income", 0)
+
     # Check for anomalies
     anomaly_result = detect_anomaly(
-        user_income=user.get("annual_income", 0),
+        user_income=annual_income,
         amount=data.amount,
         category=category,
-        user_historical_transactions=historical_txns
+        user_historical_transactions=historical_txns,
+        family_members=family_members,
+        has_pets=has_pets
     )
     
     anomaly_msg = anomaly_result.get("message") if anomaly_result else None

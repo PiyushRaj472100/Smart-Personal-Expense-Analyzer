@@ -6,7 +6,7 @@ import os
 from dotenv import load_dotenv
 from functools import lru_cache
 
-from backend.database import users_col, transactions_col, alerts_col
+from backend.database import users_col, transactions_col, alerts_col, profiles_col
 from ai.tips_engine import generate_tips
 from ai.anomaly import detect_anomaly_summary
 
@@ -55,9 +55,15 @@ def dashboard(user=Depends(get_current_user)):
     """
     Dashboard overview - matches frontend expectations
     """
+    # Fetch profile to get fresh income and family details (bypassing LRU cache)
+    profile = profiles_col.find_one({"user_id": str(user["_id"])}) or {}
+    
     # Income
-    annual_income = user.get("annual_income", 0)
+    annual_income = profile.get("annual_income") or user.get("annual_income", 0)
     monthly_income = annual_income / 12 if annual_income else 0
+    
+    family_members = profile.get("family_members", 1)
+    has_pets = profile.get("has_pets", False)
     
     # Current month range
     now = datetime.utcnow()
@@ -122,7 +128,9 @@ def dashboard(user=Depends(get_current_user)):
     tips = generate_tips(
         income=annual_income,
         total_expense=total_expense,
-        category_data=category_data
+        category_data=category_data,
+        family_members=family_members,
+        has_pets=has_pets
     )
     
     return {

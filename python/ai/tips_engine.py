@@ -6,7 +6,7 @@ from openai import OpenAI
 # In-memory cache for fast dashboard reloads
 _tips_cache = {}
 
-def generate_tips(income, total_expense, category_data):
+def generate_tips(income, total_expense, category_data, family_members=1, has_pets=False):
     """
     LLM-powered Tips Engine (RAG architecture for structured context).
     """
@@ -27,7 +27,7 @@ def generate_tips(income, total_expense, category_data):
         ]
 
     # Create a unique hash of the current financial state
-    state_hash_str = f"{income}_{total_expense}_{json.dumps(category_data, sort_keys=True)}"
+    state_hash_str = f"{income}_{total_expense}_{family_members}_{has_pets}_{json.dumps(category_data, sort_keys=True)}"
     state_hash = hashlib.md5(state_hash_str.encode()).hexdigest()
 
     # Check cache first for instant load
@@ -42,13 +42,15 @@ def generate_tips(income, total_expense, category_data):
         "monthly_income": round(monthly_income, 2),
         "total_spent_this_month": round(total_expense, 2),
         "money_saved": round(savings, 2),
+        "family_size": family_members,
+        "has_pets": has_pets,
         "spending_by_category": category_data
     }
     
     system_prompt = """
     You are an expert personal finance advisor. 
-    Review the user's monthly spending data and provide exactly 3 short, 
-    highly personalized tips to help them save money or manage better.
+    Review the user's monthly spending data and profile (family size, pets) and provide exactly 3 short, 
+    highly personalized tips to help them save money or manage better. Take into account if they have a large family or pets.
     Return a JSON object with a 'tips' key containing an array of strings.
     """
     
