@@ -1,7 +1,5 @@
 import os
 import json
-from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 from openai import OpenAI
 from backend.database import db
@@ -9,8 +7,16 @@ from backend.database import db
 # LEVEL 1 & 4: Exact Match Database
 category_rules_col = db["category_rules"]
 
-# LEVEL 2: Semantic Model
-model = SentenceTransformer('all-MiniLM-L6-v2')
+# LEVEL 2: Semantic Model (Using OpenAI API to save RAM instead of local PyTorch)
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY")) if os.getenv("OPENAI_API_KEY") else None
+
+def get_embedding(text):
+    if not client: return [0]*1536
+    response = client.embeddings.create(input=[text], model="text-embedding-3-small")
+    return response.data[0].embedding
+
+def cosine_sim(a, b):
+    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)) if np.linalg.norm(a) and np.linalg.norm(b) else 0.0
 
 CATEGORIES = {
     "Food": "Restaurant, dining, fast food, coffee shop, swiggy, zomato, cafe, street food, snacks",
@@ -25,7 +31,15 @@ CATEGORIES = {
 
 category_names = list(CATEGORIES.keys())
 category_descriptions = list(CATEGORIES.values())
-category_embeddings = model.encode(category_descriptions)
+
+# Lazily cache embeddings so we don't spam the API unless needed
+_category_embeddings = None
+
+def get_category_embeddings():
+    global _category_embeddings
+    if _category_embeddings is None:
+        _category_embeddings = [get_embedding(desc) for desc in category_descriptions]
+    return _category_embeddings
 
 def categorize_expense_adaptive(text: str) -> dict:
     """Hybrid Categorization Engine (Exact Match -> Semantic -> LLM)"""
@@ -43,21 +57,23 @@ def categorize_expense_adaptive(text: str) -> dict:
             "ask_user": False
         }
 
-    # LEVEL 2: Semantic Search (Sentence Transformers)
-    transaction_embedding = model.encode([text])
-    similarities = cosine_similarity(transaction_embedding, category_embeddings)[0]
-    
-    best_match_idx = np.argmax(similarities)
-    best_score = float(similarities[best_match_idx])
-    
-    # If the model is somewhat confident, return it
-    if best_score >= 0.25:
-        return {
-            "category": category_names[best_match_idx],
-            "confidence": round(best_score, 2),
-            "reason": f"Semantic match ({best_score:.2f})",
-            "ask_user": False
-        }
+    # LEVEL 2: Semantic Search (OpenAI Embeddings)
+    if client:
+        transaction_embedding = get_embedding(text)
+        cat_embs = get_category_embeddings()
+        similarities = [cosine_sim(transaction_embedding, ce) for ce in cat_embs]
+        
+        best_match_idx = np.argmax(similarities)
+        best_score = float(similarities[best_match_idx])
+        
+        # OpenAI embeddings generally have higher baseline similarity, adjust threshold to ~0.4
+        if best_score >= 0.40:
+            return {
+                "category": category_names[best_match_idx],
+                "confidence": round(best_score, 2),
+                "reason": f"Semantic match ({best_score:.2f})",
+                "ask_user": False
+            }
 
     # LEVEL 3: LLM Reasoning (For complex/ambiguous context)
     api_key = os.getenv("OPENAI_API_KEY")
@@ -85,7 +101,7 @@ def categorize_expense_adaptive(text: str) -> dict:
     # Fallback to Other if all levels fail
     return {
         "category": "Other",
-        "confidence": round(best_score, 2),
+        "confidence": 0.0,
         "reason": f"No strong match found",
         "ask_user": True
     }
