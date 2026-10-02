@@ -10,7 +10,7 @@ CATEGORIES = {
     "Grocery": "Supermarket, vegetables, daily needs, milk, kirana, instamart, blinkit, raw ingredients",
     "Transport": "Uber, ola, taxi, bus, train, flight, metro, fuel, petrol, transit",
     "Health": "Hospital, pharmacy, doctor, medicine, clinic, medical, fitness, gym",
-    "Shopping": "Amazon, flipkart, clothes, electronics, mall, retail, shoes, apparel",
+    "Shopping": "Amazon, flipkart, clothes, electronics, mall, retail, shoes, apparel, smartphone, phone, mobile, gadgets",
     "Entertainment": "Netflix, movies, cinema, gaming, subscription, spotify, concert",
     "Bills": "Electricity, water bill, recharge, broadband, rent, emi, insurance",
     "Transfer": "Sent to, paid to, transferred, upi payment to person",
