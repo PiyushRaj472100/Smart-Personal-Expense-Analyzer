@@ -1,6 +1,10 @@
 import os
 import json
+import hashlib
 from openai import OpenAI
+
+# In-memory cache for fast dashboard reloads
+_tips_cache = {}
 
 def generate_tips(income, total_expense, category_data):
     """
@@ -13,6 +17,22 @@ def generate_tips(income, total_expense, category_data):
             "Try saving 20% of your income for emergencies.",
             "Review your top spending category to cut costs."
         ]
+
+    # Fast path for new accounts (0ms load time instead of 3s)
+    if total_expense == 0:
+        return [
+            "Welcome! Start by adding your first expense.",
+            "A good rule of thumb is to save at least 20% of your income.",
+            "Set up your recurring bills right away to track them."
+        ]
+
+    # Create a unique hash of the current financial state
+    state_hash_str = f"{income}_{total_expense}_{json.dumps(category_data, sort_keys=True)}"
+    state_hash = hashlib.md5(state_hash_str.encode()).hexdigest()
+
+    # Check cache first for instant load
+    if state_hash in _tips_cache:
+        return _tips_cache[state_hash]
 
     client = OpenAI(api_key=api_key)
     monthly_income = (income / 12) if income else 0
@@ -45,7 +65,11 @@ def generate_tips(income, total_expense, category_data):
         )
         
         result = json.loads(response.choices[0].message.content)
-        return result.get("tips", [])
+        tips = result.get("tips", [])
+        
+        # Save to cache
+        _tips_cache[state_hash] = tips
+        return tips
         
     except Exception as e:
         print(f"LLM Tip Engine Error: {e}")
