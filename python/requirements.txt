@@ -8,3 +8,5 @@ email-validator
 numpy
 scikit-learn
 pandas
+sentence-transformers
+openai
